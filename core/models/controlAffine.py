@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from .base import DynamicalSystem
-from ..utils.algebra import lie_derivative
+from ..utils.algebra import lie_derivative, lie_bracket
 
 class ControlAffineSystem(DynamicalSystem):
     """
@@ -79,3 +79,51 @@ class ControlAffineSystem(DynamicalSystem):
         O_matrix = self.observability_codistribution_matrix(at_point)
         return jnp.linalg.matrix_rank(O_matrix) == self.n
 
+    def _controllability_distribution(self, at_point: Array) -> Array:
+        """
+        Computes the matrix whose columns span the controllability distribution 
+        by evaluating the basis of the Lie Algebra at a point. This is done by
+        iteratively generating new vector fields via Lie brackets until the rank
+        of the distribution stabilizes.
+        """
+        # Control vector fields as the initial basis
+        basis_fields = self.g_control.copy()
+        
+        # Iteratively build the Lie algebra distribution
+        last_rank = 0
+        while True:
+            # Evaluate the current set of basis fields at the test point
+            current_vectors = [field(at_point) for field in basis_fields]
+            current_matrix = jnp.vstack(current_vectors).T
+            current_rank = jnp.linalg.matrix_rank(current_matrix)
+            
+            if current_rank == last_rank:
+                break
+            
+            if current_rank == self.n:
+                break
+            
+            last_rank = current_rank
+            
+            new_fields_to_add = []
+            
+            for field in basis_fields:
+                new_drift_bracket = lie_bracket(self.f_drift, field)
+                new_fields_to_add.append(new_drift_bracket)
+                
+                # Bracket with control fields
+                for g_field in self.g_control:
+                    new_control_bracket = lie_bracket(g_field, field)
+                    new_fields_to_add.append(new_control_bracket)
+                
+            basis_fields.extend(new_fields_to_add)
+            
+        return current_matrix
+
+    def is_locally_controllable(self, at_point: Array) -> bool:
+        """
+        Checks for local controllability at a specific point using the Lie Algebra
+        Rank Condition (LARC).
+        """
+        C_matrix = self._controllability_distribution(at_point)
+        return jnp.linalg.matrix_rank(C_matrix) == self.n
