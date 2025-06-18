@@ -1,0 +1,67 @@
+# =============================================================================
+# Python & Package Artifacts
+# =============================================================================
+
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Pytest cache
+.pytest_cache/
+
+# Coverage reports
+.coverage
+htmlcov/
+
+# Build, distribution, and installation artifacts
+build/
+dist/
+*.egg-info/
+*.whl
+*.tar.gz
+
+# =============================================================================
+# Virtual Environments
+# =============================================================================
+# Generic virtual environment names
+venv/
+env/
+.venv/
+.env/
+
+# Conda environment data
+# (Note: environment.yml should be committed, but not the env itself)
+/conda-meta/
+
+# =============================================================================
+# IDE & Editor Configuration
+# =============================================================================
+# VSCode
+.vscode/
+
+# PyCharm
+.idea/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# =============================================================================
+# Operating System Files
+# =============================================================================
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# =============================================================================
+# Secrets & Logs
+# =============================================================================
+# Environment variables file (contains secrets)
+.env
+
+# Log files
+*.log
