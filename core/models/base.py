@@ -103,18 +103,29 @@ class DynamicalSystem(ABC):
         # DIFFRAX:
         #   - Requires continuous-time input signal
         #   - Convert the discrete control input sequence to a step function
-        u_ct = diffrax
+        u_ct = diffrax.Step(ts=time_steps, ys=u)
         
-        def step(carry, idx):
-            x_prev, t_prev = carry
-            t_curr = time_steps[idx]
-            dt = t_curr - t_prev
-            u_curr = u[idx]
-            x_next = self.integrator(self.f, x_prev, u_curr, self.params, t_prev, dt)
-            return (x_next, t_curr), x_next
+        # Convert the dynamics function's signature to a Diffrax-compatible one
+        def f_diffrax(t, y, args):
+            params, controls = args
+            u_t = controls.evaluate(t)
+            return self.f(y, u_t, params, t)
+
+        # Set up the ODE problem
+        term = diffrax.ODETerm(f_diffrax)
+        solver = diffrax.Tsit5() # General-purpose adaptive solver
+        t0 = time_steps[0]
+        t1 = time_steps[-1]
         
-        _, xs = jax.lax.scan(step, (x0, time_steps[0]), jnp.arange(1, T))
-        return jnp.vstack((x0[None, :], xs))
+        args = (self.params, u_ct)
+        saveat = diffrax.SaveAt(ts=time_steps)
+        
+        solution = diffrax.diffeqsolve(
+            term, solver, t0, t1, dt0=None, y0=x0, args=args, saveat=saveat
+        )
+        
+        return solution.ys
+        
     
     def observe(self, states: Array, times : Array) -> Array:
         vg = jax.vmap(lambda x, t: self.g(x, self.params, t), in_axes=(0,0))
