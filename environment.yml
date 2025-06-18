@@ -19,6 +19,7 @@ dependencies:
   - pip:
     - jax==0.6.1
     - jaxlib==0.6.1
+    - diffrax
 
     # dev dependencies
     - pytest==8.4.0

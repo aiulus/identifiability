@@ -25,8 +25,7 @@ class TopotecanModel(DynamicalSystem):
             - BT: Concentratino of DNA sites available for TPT binding
             - v1: Medium volume / cytoplasm volume
             - v2: Nucleus volume / cytoplasm volume
-        """
-        super().__init__(n=5, m=0, p=5, d=len(params))
+        """        
         self._keys = [
             "ko_m", "kc_m", "ki", "ke",
             "ko_c", "kc_c", "kb", "kd",
@@ -38,7 +37,9 @@ class TopotecanModel(DynamicalSystem):
             val = params[key]
             assert val >= 0, f"Parameter '{key}' must be ≥ 0, got {val}"
             
-        self.params = jnp.array([params[k] for k in self._keys])
+        jnp_params = jnp.array([params[k] for k in self._keys])
+        super().__init__(n=5, m=0, p=4, params=jnp_params)
+        
         # initial state: all drug in extracellular lactone compartment
         self.initial_state = jnp.array([
             initial_dose,  # Lm: TPT-L in the medium
@@ -64,4 +65,4 @@ class TopotecanModel(DynamicalSystem):
         Hi = Hc /(1 + v2)
         Li = (Lc + v2*Ln) / (1 + v2)
         y = jnp.stack([Lm, Hm, Li, Hi])
-        return state
+        return y

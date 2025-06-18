@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Callable, Union
+from typing import Optional, Callable
 
 import jax
 import jax.numpy as jnp
 from jax import Array
+import diffrax
 
 class DynamicalSystem(ABC):
     """
@@ -29,9 +30,9 @@ class DynamicalSystem(ABC):
         assert isinstance(n, int) and n > 0
         self.n = n 
         self.m = m 
-        assert self.p <= self.n 
         self.p = p or n
-        if params:
+        assert self.p <= self.n         
+        if params is not None:
             self.d = max(params.shape)
             self.params = params 
         else:
@@ -41,7 +42,7 @@ class DynamicalSystem(ABC):
 
     
     @abstractmethod
-    def f(self, state:Array, input: Optional[Array], t:float) -> Array:
+    def f(self, state:Array, u: Optional[Array], params:Array, t:float) -> Array:
         """
         System dynamics. Computes the derivative of the state vector at time t.
         
@@ -80,29 +81,35 @@ class DynamicalSystem(ABC):
         f: Callable, 
         x: Array,
         u: Optional[Array], 
+        params: Array, 
         t: float, 
         dt: float,
     ):
-        k1 = f(x, u, t)
-        k2 = f(x +0.5*dt*k1, u, t + 0.5*dt)
-        k3 = f(x + 0.5*dt*k2, u, t + 0.5*dt)
-        k4 = f(x+ dt*k3, u, t + dt)
+        k1 = f(x, u, params, t)
+        k2 = f(x +0.5*dt*k1, u, params, t + 0.5*dt)
+        k3 = f(x + 0.5*dt*k2, u, params, t + 0.5*dt)
+        k4 = f(x+ dt*k3, u, params, t + dt)
         
         return x + (dt/6)*(k1 + 2*k2 + 2*k3 + k4)
     
-    def simulate(self, x0: Array, time_steps: Array, controls: Optional[Array]) -> Array:
+    def simulate(self, x0: Array, time_steps: Array, u: Optional[Array]) -> Array:
         T = time_steps.shape[0]
-        if controls is None:
-            controls = jnp.zeros((T, self.m))
+        if u is None:#
+            u = jnp.zeros((T, self.m))
         else:
-            assert T == controls.shape[0], f"Length of the control sequence must match that of time steps!"
-            assert self.m == controls.shape[1], f"Control inputs must have the dimension m = {self.m}! Provided sequence: ({controls.shape[0]}, {controls.shape[1]})"
+            assert T == u.shape[0], f"Length of the control sequence must match that of time steps!"
+            assert self.m == u.shape[1], f"Control inputs must have the dimension m = {self.m}! Provided sequence: ({controls.shape[0]}, {controls.shape[1]})"
+        
+        # DIFFRAX:
+        #   - Requires continuous-time input signal
+        #   - Convert the discrete control input sequence to a step function
+        u_ct = diffrax
         
         def step(carry, idx):
             x_prev, t_prev = carry
             t_curr = time_steps[idx]
             dt = t_curr - t_prev
-            u_curr = controls[idx]
+            u_curr = u[idx]
             x_next = self.integrator(self.f, x_prev, u_curr, self.params, t_prev, dt)
             return (x_next, t_curr), x_next
         
