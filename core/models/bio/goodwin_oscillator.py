@@ -1,9 +1,8 @@
 from typing import Optional, List, Dict, Any
 import jax.numpy as jnp
 from jax import Array
-import diffrax
 
-from .base import DynamicalSystem
+from identifiability.core.models.base import DynamicalSystem
 
 class GoodwinOscillator(DynamicalSystem):
     """
