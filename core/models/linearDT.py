@@ -54,7 +54,10 @@ class LinearSystem(DynamicalSystem):
 
         Args:
             method (str): 'kalman' for Kalman rank test or 'pbh' for PBH test.
+                > 'kalman': $\operatorname{rank}\eft(\begin{bmatrix} B & AB & A^2B & \cdots & A^{n-1}B \end{bmatrix}\right)\overset{?}{=}n$
+                > 'pbh' (Popov-Belevitch-Hautus): For every eigenvalue $\lambda$ of $A$, $\text{rank}\left(\begin{bmatrix} A - \lambda I & B \end{bmatrix}\right) = n$
         """
+        
         if method == 'kalman':
             C_matrix = self.kalman_controllability_matrix()
             return jnp.linalg.matrix_rank(C_matrix) == self.n
@@ -82,6 +85,8 @@ class LinearSystem(DynamicalSystem):
 
         Args:
             method (str): 'kalman' for Kalman rank test or 'pbh' for PBH test.
+            > 'kalman': Checks whether $\operatorname(rank)\left(\begin{bmatrix} C \ CA \ CA^2 \ \vdots \ CA^{n-1} \end{bmatrix}\right)=n
+            > 'pbh': Checks whether $\operatorname{rank}\left(\begin{bmatrix} A - \lambda I \ C \end{bmatrix}\right) = n$ for every eigenvalue $\lambda$ of $A$
         """
         if method == 'kalman':
             O_matrix = self.kalman_observability_matrix()
