@@ -16,6 +16,18 @@ def lti_system_distinct_eigs():
     C = jnp.zeros((1, 2))
     return LinearSystem(A, B, C)
 
+@pytest.fixture
+def lti_system_repeated_eigs_diagonalizable():
+    """A diagonalizable system with a repeated eigenvalue of -1."""
+    A = jnp.array([[-1.0, 0.0], [0.0, -1.0]])
+    return LinearSystem(A, jnp.zeros((2,1)), jnp.zeros((1,2)))
+
+@pytest.fixture
+def lti_system_defective():
+    """A non-diagonalizable (defective) system with a repeated eigenvalue of -1."""
+    A = jnp.array([[-1.0, 1.0], [0.0, -1.0]])
+    return LinearSystem(A, jnp.zeros((2,1)), jnp.zeros((1,2)))
+
 class TestQiuICIS:
 
     def test_identifiable_case(self, lti_system_distinct_eigs):
@@ -67,5 +79,41 @@ class TestQiuICIS:
         
         assert not result["identifiable"]
         assert result["status"] == "Failed"
-        assert "non-distinct eigenvalues" in result["message"]
+
+
+    def test_identifiable_distinct_eigs(self, lti_system_distinct_eigs):
+        """Tests an identifiable case with distinct eigenvalues."""
+        x0 = jnp.array([1.0, 1.0])
+        analyzer = QiuICIS()
+        result = analyzer.analyze(lti_system_distinct_eigs, x0)
+        
+        assert result["identifiable"]
+        assert result["status"] == "Success"
+
+    def test_unidentifiable_distinct_eigs(self, lti_system_distinct_eigs):
+        """Tests an unidentifiable case where one mode is not excited."""
+        x0 = jnp.array([1.0, 0.0])
+        analyzer = QiuICIS()
+        result = analyzer.analyze(lti_system_distinct_eigs, x0,)
+
+        assert not result["identifiable"]
+        assert result["status"] == "Success"
+
+    def test_identifiable_repeated_eigs(self, lti_system_repeated_eigs_diagonalizable):
+        """Tests an identifiable case with repeated but diagonalizable eigenvalues."""
+        x0 = jnp.array([1.0, 1.0])
+        analyzer = QiuICIS()
+        result = analyzer.analyze(lti_system_repeated_eigs_diagonalizable, x0)
+        
+        assert result["identifiable"]
+        assert result["status"] == "Success"
+        
+    def test_defective_matrix_case(self, lti_system_defective):
+        """Tests that a defective (non-diagonalizable) matrix is correctly flagged."""
+        x0 = jnp.array([1.0, 1.0])
+        analyzer = QiuICIS()
+        result = analyzer.analyze(lti_system_defective, x0)
+
+        assert not result["identifiable"]
+        assert result["status"] == "Failed"
 
