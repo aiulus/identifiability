@@ -2,7 +2,7 @@ import pytest
 import jax.numpy as jnp
 
 from identifiability.core.algs.QiuICIS import QiuICIS
-from identifiability.core.models.linearDT import LinearSystem
+from identifiability.core.models.linearCT import LinearSystem
 from identifiability.core.models.linearParametricCT import LinearParametricCT
 from identifiability.core.idp import IdentificationProblem
 
@@ -41,11 +41,12 @@ class TestSensitivityAnalysis:
         model = make_simple_parametric_model(p)
         x0 = jnp.array([10.0])
         time_steps = jnp.linspace(0, 2, 21)
+        initial_state = jnp.zeros((model.n, 1))
 
         # Create the problem. Note: IdentificationProblem needs `initial_state`
         # We need to update the problem class or add it here.
         # For now, let's assume problem has an `initial_state` attribute.
-        problem = IdentificationProblem(model, time_steps)
+        problem = IdentificationProblem(model, time_steps, initial_state=initial_state)
         problem.initial_state = x0
 
         analyzer = QiuICIS()

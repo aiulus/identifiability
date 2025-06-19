@@ -29,7 +29,7 @@ class DynamicalSystem(ABC):
                  p: Optional[int] = None, #  Output dim.
                  params: Optional[Array] = None,
                  solver: Optional[diffrax.AbstractSolver] = None,
-                  stepsize_controller: Optional[diffrax.AbstractStepSizeController] = None,
+                 stepsize_controller: Optional[diffrax.AbstractStepSizeController] = None,
                  solver_options: Optional[Dict[str, Any]] = None):
         assert isinstance(n, int) and n > 0
         self.n = n 
@@ -66,7 +66,7 @@ class DynamicalSystem(ABC):
             u = jnp.zeros((T, self.m))
         else:
             assert T == u.shape[0], f"Length of the control sequence must match that of time steps!"
-            assert self.m == u.shape[1], f"Control inputs must have the dimension m = {self.m}! Provided sequence: ({controls.shape[0]}, {controls.shape[1]})"
+            assert self.m == u.shape[1], f"Control inputs must have the dimension m = {self.m}! Provided sequence: ({u.shape[0]}, {u.shape[1]})"
         
         # DIFFRAX:
         #   - Requires continuous-time input signal
@@ -89,7 +89,6 @@ class DynamicalSystem(ABC):
         if dt0 is None and len(time_steps) > 1:
             dt0 = time_steps[1] - time_steps[0]
         
-        # TODO: y0=x0 true?
         solution = diffrax.diffeqsolve(
             term, 
             self.solver,

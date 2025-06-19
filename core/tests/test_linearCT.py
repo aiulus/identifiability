@@ -2,7 +2,7 @@
 
 import pytest
 import jax.numpy as jnp
-from identifiability.core.models.linearDT import LinearSystem
+from identifiability.core.models.linearCT import LinearSystem
 
 # --- Test System Fixtures ---
 

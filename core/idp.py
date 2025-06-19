@@ -10,11 +10,13 @@ class IdentificationProblem:
     def __init__(self,
                  sys: DynamicalSystem,
                  time_steps: Array, 
+                 initial_state: Array, 
                  u_meas: Optional[Array] = None,
                  y_meas: Optional[Array] = None
                  ):
         self.sys = sys
         self.time_steps = time_steps        
+        self.initial_state = initial_state
         if u_meas is None:
             self.u_meas = jnp.zeros((time_steps.shape[0], sys.m))
         else:

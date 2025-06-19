@@ -2,8 +2,10 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 import diffrax
-from typing import Tuple, Dict
-from ..models.linearDT import LinearSystem
+from typing import Tuple, Dict, Callable
+from scipy.optimize import minimize
+from scipy.stats import chi2
+from ..models.linearCT import LinearSystem
 from ..idp import IdentificationProblem
 
 """
@@ -119,3 +121,50 @@ class QiuICIS:
         S_traj = solution.ys[:, n:].reshape(-1, n, d)
         
         return x_traj, S_traj
+    
+    def _create_cost_function(self, problem: IdentificationProblem) -> Callable[[Array], float]:
+        def costSSE(theta: Array) -> float:
+            problem.sys.params = theta
+            x_sim = problem.sys.simulate(problem.initial_state, problem.time_steps, problem.u_meas)
+            y_sim = problem.sys.observe(x_sim, problem.time_steps)
+            return jnp.sum((y_sim - problem.y_meas)**2)
+        
+    def analyze_LR(
+        self,
+        problem: IdentificationProblem,
+        theta_guess: Array,
+        alpha: float = 0.05
+    ) -> Dict:
+        """Performs practical identifiability analysis using the Likelihood Ratio Test."""
+        cost_func = self._create_cost_function(problem)
+        d = len(theta_guess)
+        results = {}
+
+        full_model_fit = minimize(cost_func, theta_guess, method='Nelder-Mead')
+        rss_full = full_model_fit.fun
+        theta_hat_full = full_model_fit.x
+        
+        results['full_model_fit'] = {'theta_hat': theta_hat_full, 'rss': rss_full}
+        results['parameter_analysis'] = {}
+
+        for i in range(d):
+            theta_i_name = f"theta_{i}"
+            
+            def cost_func_reduced(theta_reduced):
+                theta_full = jnp.insert(jnp.array(theta_reduced), i, theta_hat_full[i])
+                return cost_func(theta_full)
+
+            theta_reduced_guess = jnp.delete(theta_hat_full, i)
+            reduced_model_fit = minimize(cost_func_reduced, theta_reduced_guess, method='Nelder-Mead')
+            rss_reduced = reduced_model_fit.fun
+
+            lr_statistic = len(problem.time_steps) * jnp.log(rss_reduced / rss_full)
+            p_value = 1 - chi2.cdf(lr_statistic, df=1)
+            is_identifiable = p_value < alpha
+
+            results['parameter_analysis'][theta_i_name] = {
+                'identifiable': is_identifiable,
+                'p_value': float(p_value),
+                'lr_statistic': float(lr_statistic)
+            }
+        return results

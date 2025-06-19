@@ -58,7 +58,7 @@ class TestDynamicalSystem:
         time_steps = jnp.array([0.0, dt])
 
         # Simulate one step
-        trajectory = model.simulate(x0, time_steps, controls=None)
+        trajectory = model.simulate(x0, time_steps, u=None)
         x_rk4 = trajectory[-1]
         
         # Analytical solution: x(t) = x0 * exp(-a*t)
@@ -74,7 +74,7 @@ class TestDynamicalSystem:
         x0 = model.initial_state
         time_steps = jnp.array([0.0, 0.0, 0.0]) # A sequence of zero-dt steps
 
-        trajectory = model.simulate(x0, time_steps, controls=None)
+        trajectory = model.simulate(x0, time_steps, u=None)
         
         assert trajectory.shape == (3, 2)
         assert jnp.allclose(trajectory[0], x0)
@@ -94,7 +94,7 @@ class TestDynamicalSystem:
         model = DummyLinearSystem(params=jnp.array([0.1]), initial_state=jnp.array([10.0]))
         x0 = model.initial_state
         
-        trajectory = model.simulate(x0, time_steps, controls=None)
+        trajectory = model.simulate(x0, time_steps, u=None)
         
         # Check that the first state of the trajectory is the initial state
         assert jnp.allclose(trajectory[0], x0)
@@ -115,12 +115,12 @@ class TestDynamicalSystem:
         time_steps = jnp.linspace(0, 1, T)
         
         # 1. Test with controls=None (should default to zeros)
-        traj_none = model.simulate(x0, time_steps, controls=None)
+        traj_none = model.simulate(x0, time_steps, u=None)
         assert traj_none.shape == (T, model.n)
 
         # 2. Test with a valid controls array
-        controls = jnp.ones((T, model.m))
-        traj_valid = model.simulate(x0, time_steps, controls=controls)
+        u = jnp.ones((T, model.m))
+        traj_valid = model.simulate(x0, time_steps, u=u)
         assert traj_valid.shape == (T, model.n)
         # With positive control, final state should be higher than with no control
         assert traj_valid[-1] > traj_none[-1]
@@ -128,12 +128,12 @@ class TestDynamicalSystem:
         # 3. Test with controls of incorrect dimension `m`
         with pytest.raises(AssertionError, match=r"dimension m = 1"):
             bad_controls_m = jnp.ones((T, model.m + 1))
-            model.simulate(x0, time_steps, controls=bad_controls_m)
+            model.simulate(x0, time_steps, u=bad_controls_m)
 
         # 4. Test with controls of incorrect length `T`
         with pytest.raises(AssertionError, match=r"match that of time steps"):
             bad_controls_t = jnp.ones((T - 1, model.m))
-            model.simulate(x0, time_steps, controls=bad_controls_t)
+            model.simulate(x0, time_steps, u=bad_controls_t)
 
     def test_simulate_edge_case_single_timestep(self):
         """
@@ -143,7 +143,7 @@ class TestDynamicalSystem:
         x0 = model.initial_state
         time_steps = jnp.array([0.0]) # Single time point
         
-        trajectory = model.simulate(x0, time_steps, controls=None)
+        trajectory = model.simulate(x0, time_steps, u=None)
         
         assert trajectory.shape == (1, model.n)
         assert jnp.allclose(trajectory[0], x0)
@@ -158,7 +158,7 @@ class TestDynamicalSystem:
         
         # Generate a sample trajectory
         time_steps = jnp.linspace(0, 1, 10)
-        states = model.simulate(model.initial_state, time_steps, controls=None)
+        states = model.simulate(model.initial_state, time_steps, u=None)
         
         # Get the observations
         outputs = model.observe(states, time_steps)
