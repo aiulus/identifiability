@@ -1,5 +1,6 @@
 from typing import Optional
 from jax import Array
+import jax.numpy as jnp
 from .models.base import DynamicalSystem
 
 class IdentificationProblem:

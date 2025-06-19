@@ -1,7 +1,10 @@
+import jax
 import jax.numpy as jnp
 from jax import Array
+import diffrax
 from typing import Tuple, Dict
 from ..models.linearDT import LinearSystem
+from ..idp import IdentificationProblem
 
 """
 Performs identifiability analysis on a linear system from a single trajectory, based on 
@@ -63,3 +66,64 @@ class QiuICIS:
                        else "System is not identifiable from this initial condition.",
             "score": float(icis_score)
         }
+        
+    def compute_sensitivity_trajectory(
+        self,
+        problem: IdentificationProblem,
+    ) -> Tuple[Array, Array]:
+        """
+        Solves the augmented state and sensitivity equations for a given problem.
+
+        The augmented state is [x, S_flat], where S is the sensitivity matrix
+        S_ij = dx_i / d_theta_j.
+
+        Args:
+            problem: An IdentificationProblem instance containing the model,
+                     time steps, and control inputs.
+
+        Returns:
+            A tuple containing:
+            - The state trajectory (T, n).
+            - The sensitivity trajectory (T, n, d), where d is the number of parameters.
+        """
+        sys = problem.sys
+        n, d = sys.n, sys.d
+        x0 = problem.initial_state 
+        
+        S0_flat = jnp.zeros(n * d) # initial sensitivity
+        aug_y0 = jnp.concatenate([x0, S0_flat])
+
+        def augmented_dynamics(t, y_aug, args): # Augmented dyamics function
+            time_steps, u_exp, params, jax_instance = args
+            
+            x = y_aug[:n]
+            S = y_aug[n:].reshape((n, d))
+
+            control_func = diffrax.LinearInterpolation(ts=time_steps, ys=u_exp)
+            u_t = control_func.evaluate(t)
+
+            f_for_jac = lambda s, p: sys.f(s, u_t, p, t)
+
+            df_dx = jax_instance.jacobian(f_for_jac, argnums=0)(x, params)
+            df_dtheta = jax_instance.jacobian(f_for_jac, argnums=1)(x, params)
+
+            dx_dt = sys.f(x, u_t, params, t)
+            dS_dt = df_dx @ S + df_dtheta
+            
+            return jnp.concatenate([dx_dt, dS_dt.flatten()])
+
+        term = diffrax.ODETerm(augmented_dynamics)
+        t0, t1 = problem.time_steps[0], problem.time_steps[-1]
+        solver_args = (problem.time_steps, problem.u_meas, sys.params, jax)
+        saveat = diffrax.SaveAt(ts=problem.time_steps)
+
+        solution = diffrax.diffeqsolve(
+            term, sys.solver, t0, t1, dt0=None, y0=aug_y0, args=solver_args,
+            saveat=saveat, stepsize_controller=sys.stepsize_controller,
+            **sys.solver_options
+        )
+
+        x_traj = solution.ys[:, :n]
+        S_traj = solution.ys[:, n:].reshape(-1, n, d)
+        
+        return x_traj, S_traj

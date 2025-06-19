@@ -2,7 +2,7 @@ from typing import Optional, Dict, Any, Callable
 import jax.numpy as jnp
 from jax import Array
 
-from base import DynamicalSystem
+from .base import DynamicalSystem
 
 class LinearParametricCT(DynamicalSystem):
     """
