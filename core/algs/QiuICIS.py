@@ -23,6 +23,9 @@ the ICIS score from Qiu et.al. (2021).
 }
 """
 
+TOL = 1e-12 # zero-tolerance
+n_digits = 4 # accuracy for equality checks
+
 class QiuICIS:
     def analyze(
         self, 
@@ -33,7 +36,15 @@ class QiuICIS:
         n = model.n
         
         # Step 1: Compute eigenvalues, eigenvectors
-        eigenvalues, eigenvectors = jnp.linalg.eig(A)
+        try:
+            eigenvalues, eigenvectors = jnp.linalg.eig(A)
+        except jnp.linalg.LinAlgError:
+            return {
+                "identifiable": False,
+                "status": "Failed",
+                "message": "Eigenvalue computation did not converge.",
+                "score": 0.0
+            }
         
         # Check for singularity
         cond_num = jnp.linalg.cond(eigenvectors)
@@ -41,139 +52,67 @@ class QiuICIS:
             return {
                 "identifiable": False,
                 "status": "Failed",
-                "message": "System matrix A isn't diagonalizable.",
+                "message": "System matrix A may not be diagonalizable (eigenvector matrix is singular).",
                 "score": 0.0
             }
             
-        # Step 2: Project x0 to the basis of eigenvectors
-        coords = jnp.linalg.inv(eigenvectors) @ x0
+        # Step 2.1: Check for repeated eigenvalues
+        rounded_eigenvalues = jnp.around(eigenvalues, decimals=n_digits)
+        unique_eigenvalues, counts = jnp.unique(rounded_eigenvalues, return_counts=True)
+        if jnp.any(counts > 1):
+            return {
+                "identifiable": False,
+                "status": "Success",
+                "message": "System is not identifiable due to repeated eigenvalues.",
+                "score": 0.0,
+                "repeated_eigenvalues": True
+            }
+
+        # Step 2.2: Project x0 to the basis of eigenvectors
+        try:
+            coords = jnp.linalg.inv(eigenvectors) @ x0
+        except jnp.linalg.LinAlgError:
+            return {
+                "identifiable": False,
+                "status": "Failed",
+                "message": "Could not invert the eigenvector matrix.",
+                "score": 0.0
+            }
             
         # Step 3: Compute the Initial Condition-Based Identifiability Score (ICIS)
-        w0_k_magnitudes = []
-        for i in range(len(coords)):
-            w0_k_magnitudes.append(
-                jnp.abs(coords[i]))
+        w0k_norms = []
+        i = 0
+        while i < n:
+            if jnp.abs(jnp.imag(eigenvalues[i])) < TOL:
+                w0k_norms.append(jnp.abs(coords[i]))
+                i += 1
+            else: # Complex values
+                if i + 1 < n and jnp.isclose(eigenvalues[i], jnp.conj(eigenvalues[i+1])):
+                    w0k_norms.append(jnp.sqrt(jnp.abs(coords[i]) ** 2 + jnp.abs(coords[i + 1]) ** 2))
+                    i += 2
+                else:
+                    w0k_norms.append(jnp.abs(coords[i]))
+                    i += 1
 
-        # As per Definition 2.3, w_0^* is the minimum of these magnitudes.
-        if not w0_k_magnitudes:
+        if not w0k_norms:
             icis_score = 0.0
         else:
-            icis_score = jnp.min(jnp.array(w0_k_magnitudes))
+            icis_score = jnp.min(jnp.array(w0k_norms))
 
-        is_identifiable = icis_score > 1e-15 # Floating point tolerance constant
+        is_identifiable_icis = icis_score > TOL
+        identifiable = is_identifiable_icis
+
+        message = ""
+        if identifiable:
+            message = f"System is identifiable from x0={x0}"
+        elif not is_identifiable_icis:
+            message = f"System is not identifiable from x0={x0} using the ICIS score."
         
         return {
-            "identifiable": bool(is_identifiable),
+            "identifiable": bool(identifiable),
             "status": "Success",
-            "message": "System is identifiable from this initial condition." if is_identifiable 
-                       else "System is not identifiable from this initial condition.",
-            "score": float(icis_score)
+            "message": message,
+            "score": float(icis_score),
+            "repeated_eigenvalues": False
         }
         
-    def compute_sensitivity_trajectory(
-        self,
-        problem: IdentificationProblem,
-    ) -> Tuple[Array, Array]:
-        """
-        Solves the augmented state and sensitivity equations for a given problem.
-
-        The augmented state is [x, S_flat], where S is the sensitivity matrix
-        S_ij = dx_i / d_theta_j.
-
-        Args:
-            problem: An IdentificationProblem instance containing the model,
-                     time steps, and control inputs.
-
-        Returns:
-            A tuple containing:
-            - The state trajectory (T, n).
-            - The sensitivity trajectory (T, n, d), where d is the number of parameters.
-        """
-        sys = problem.sys
-        n, d = sys.n, sys.d
-        x0 = problem.initial_state 
-        
-        S0_flat = jnp.zeros(n * d) # initial sensitivity
-        aug_y0 = jnp.concatenate([x0, S0_flat])
-
-        def augmented_dynamics(t, y_aug, args): # Augmented dyamics function
-            time_steps, u_exp, params, jax_instance = args
-            
-            x = y_aug[:n]
-            S = y_aug[n:].reshape((n, d))
-
-            control_func = diffrax.LinearInterpolation(ts=time_steps, ys=u_exp)
-            u_t = control_func.evaluate(t)
-
-            f_for_jac = lambda s, p: sys.f(s, u_t, p, t)
-
-            df_dx = jax_instance.jacobian(f_for_jac, argnums=0)(x, params)
-            df_dtheta = jax_instance.jacobian(f_for_jac, argnums=1)(x, params)
-
-            dx_dt = sys.f(x, u_t, params, t)
-            dS_dt = df_dx @ S + df_dtheta
-            
-            return jnp.concatenate([dx_dt, dS_dt.flatten()])
-
-        term = diffrax.ODETerm(augmented_dynamics)
-        t0, t1 = problem.time_steps[0], problem.time_steps[-1]
-        solver_args = (problem.time_steps, problem.u_meas, sys.params, jax)
-        saveat = diffrax.SaveAt(ts=problem.time_steps)
-
-        solution = diffrax.diffeqsolve(
-            term, sys.solver, t0, t1, dt0=None, y0=aug_y0, args=solver_args,
-            saveat=saveat, stepsize_controller=sys.stepsize_controller,
-            **sys.solver_options
-        )
-
-        x_traj = solution.ys[:, :n]
-        S_traj = solution.ys[:, n:].reshape(-1, n, d)
-        
-        return x_traj, S_traj
-    
-    def _create_cost_function(self, problem: IdentificationProblem) -> Callable[[Array], float]:
-        def costSSE(theta: Array) -> float:
-            problem.sys.params = theta
-            x_sim = problem.sys.simulate(problem.initial_state, problem.time_steps, problem.u_meas)
-            y_sim = problem.sys.observe(x_sim, problem.time_steps)
-            return jnp.sum((y_sim - problem.y_meas)**2)
-        
-    def analyze_LR(
-        self,
-        problem: IdentificationProblem,
-        theta_guess: Array,
-        alpha: float = 0.05
-    ) -> Dict:
-        """Performs practical identifiability analysis using the Likelihood Ratio Test."""
-        cost_func = self._create_cost_function(problem)
-        d = len(theta_guess)
-        results = {}
-
-        full_model_fit = minimize(cost_func, theta_guess, method='Nelder-Mead')
-        rss_full = full_model_fit.fun
-        theta_hat_full = full_model_fit.x
-        
-        results['full_model_fit'] = {'theta_hat': theta_hat_full, 'rss': rss_full}
-        results['parameter_analysis'] = {}
-
-        for i in range(d):
-            theta_i_name = f"theta_{i}"
-            
-            def cost_func_reduced(theta_reduced):
-                theta_full = jnp.insert(jnp.array(theta_reduced), i, theta_hat_full[i])
-                return cost_func(theta_full)
-
-            theta_reduced_guess = jnp.delete(theta_hat_full, i)
-            reduced_model_fit = minimize(cost_func_reduced, theta_reduced_guess, method='Nelder-Mead')
-            rss_reduced = reduced_model_fit.fun
-
-            lr_statistic = len(problem.time_steps) * jnp.log(rss_reduced / rss_full)
-            p_value = 1 - chi2.cdf(lr_statistic, df=1)
-            is_identifiable = p_value < alpha
-
-            results['parameter_analysis'][theta_i_name] = {
-                'identifiable': is_identifiable,
-                'p_value': float(p_value),
-                'lr_statistic': float(lr_statistic)
-            }
-        return results
