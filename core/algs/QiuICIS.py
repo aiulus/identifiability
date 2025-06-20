@@ -49,8 +49,17 @@ class QiuICIS:
         coords = jnp.linalg.inv(eigenvectors) @ x0
             
         # Step 3: Compute the Initial Condition-Based Identifiability Score (ICIS)
-        icis_score = jnp.prod(jnp.abs(coords)**2)
-        
+        w0_k_magnitudes = []
+        for i in range(len(coords)):
+            w0_k_magnitudes.append(
+                jnp.abs(coords[i]))
+
+        # As per Definition 2.3, w_0^* is the minimum of these magnitudes.
+        if not w0_k_magnitudes:
+            icis_score = 0.0
+        else:
+            icis_score = jnp.min(jnp.array(w0_k_magnitudes))
+
         is_identifiable = icis_score > 1e-15 # Floating point tolerance constant
         
         return {
