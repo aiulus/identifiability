@@ -59,8 +59,9 @@ def compute_grid(n_list, m_list, pB_list, pA: float, n_samples: int, master_key:
     key = master_key
     total_combinations = len(n_list) * len(m_list)
     with tqdm(total=total_combinations, desc="Total Grid Progress") as pbar:
-        for i, n in enumerate(n_list, desc="State dim. (n)"):
-            for j, m in enumerate(m_list, desc="Input dim. (m)", leave=False):
+        for i, n in enumerate(n_list):
+            for j, m in enumerate(m_list):
+                pbar.set_description(f"Processing (n={n}, m={m})")
                 for k, pB in enumerate(pB_list):
                     key, sub = jax.random.split(key)
                     trial_keys = jax.random.split(sub, n_samples)
@@ -71,7 +72,7 @@ def compute_grid(n_list, m_list, pB_list, pA: float, n_samples: int, master_key:
 
                     for crit in results:
                         results[crit][i, j, k] = jnp.mean(batch_results[crit])
-
+                pbar.update(1)
     return results
 
 
@@ -112,7 +113,7 @@ def main():
 
     pB_list = jnp.linspace(0.05, 1.0, 11)
     pA = 0.5
-    n_samples = 10  # 100
+    n_samples = 1  # 100
     master_key = jax.random.PRNGKey(0)
 
     results = compute_grid(n_list, m_list, pB_list, pA, n_samples, master_key)
@@ -121,7 +122,7 @@ def main():
     output_dir = "outputs"
     os.makedirs(output_dir, exist_ok=True)
 
-    results_filepath = os.path.join(output_dir, "hankel_grid_results_2.npz")
+    results_filepath = os.path.join(output_dir, "hankel_grid_results_ntrials_1.npz")
     np.savez(
         results_filepath,
         n_list=n_list,
