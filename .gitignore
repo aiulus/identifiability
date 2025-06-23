@@ -65,3 +65,7 @@ desktop.ini
 
 # Log files
 *.log
+
+*.npz
+
+/scripts/temp_ABx.py
