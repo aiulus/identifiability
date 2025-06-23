@@ -1,5 +1,3 @@
-# file: identifiability/core/models/linear.py
-
 from typing import Optional, Dict, Any
 import jax.numpy as jnp
 from jax import Array
