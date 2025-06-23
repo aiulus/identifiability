@@ -115,4 +115,3 @@ class QiuICIS:
             "score": float(icis_score),
             "repeated_eigenvalues": False
         }
-        
