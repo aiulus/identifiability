@@ -14,7 +14,7 @@ from core.utils.random_matrices import sparse_matrix
 from core.models.linearCT import LinearSystem
 
 
-def verify_identifiability_criteria(A: jnp.ndarray, B: jnp.ndarray, *, sigma_tol: float = 1e-6) -> Dict[str, bool]:
+def verify_identifiability_criteria(A: jnp.ndarray, B: jnp.ndarray, *, sigma_tol: float = 1e-12) -> Dict[str, bool]:
     n = A.shape[0]
     H = build_LTI_hankel(A, B, n)
 
@@ -48,6 +48,7 @@ def run_single_instance(n: int, m: int, pA: float, pB: float, key: jax.random.PR
     B = sparse_matrix((n, m), pB, key_B)
     return verify_identifiability_criteria(A, B)
 
+
 def compute_grid(n_list, m_list, pB_list, pA: float, n_samples: int, master_key: jax.random.PRNGKey):
     shape = (len(n_list), len(m_list), len(pB_list))
     results = {
@@ -56,20 +57,23 @@ def compute_grid(n_list, m_list, pB_list, pA: float, n_samples: int, master_key:
         "kalman_uncontrollable": np.zeros(shape),
     }
     key = master_key
-    for i, n in enumerate(tqdm(n_list, desc="State dim. (n)")):
-        for j, m in enumerate(tqdm(m_list, desc="Input dim. (m)", leave=False)):
-            for k, pB in enumerate(pB_list):
-                key, sub = jax.random.split(key)
-                trial_keys = jax.random.split(sub, n_samples)
+    total_combinations = len(n_list) * len(m_list)
+    with tqdm(total=total_combinations, desc="Total Grid Progress") as pbar:
+        for i, n in enumerate(n_list, desc="State dim. (n)"):
+            for j, m in enumerate(m_list, desc="Input dim. (m)", leave=False):
+                for k, pB in enumerate(pB_list):
+                    key, sub = jax.random.split(key)
+                    trial_keys = jax.random.split(sub, n_samples)
 
-                batch_results = jax.vmap(
-                    lambda k_: run_single_instance(n, m, pA, pB, k_)
-                )(trial_keys)
+                    batch_results = jax.vmap(
+                        lambda k_: run_single_instance(n, m, pA, pB, k_)
+                    )(trial_keys)
 
-                for crit in results:
-                    results[crit][i, j, k] = jnp.mean(batch_results[crit])
+                    for crit in results:
+                        results[crit][i, j, k] = jnp.mean(batch_results[crit])
 
     return results
+
 
 def plot_heatmaps(results: Dict[str, np.ndarray],
                   n_list, m_list, pB_list,
@@ -77,8 +81,8 @@ def plot_heatmaps(results: Dict[str, np.ndarray],
     """Side-by-side heat-maps for the three criteria at fixed p_B."""
     pB_val = pB_list[pB_slice_idx]
     crit_titles = {
-        "rank_defect":         "Rank defect  (rank(H) < n)",
-        "small_gap":           r"Near-zero $\sigma_{\min}$",
+        "rank_defect": "Rank defect  (rank(H) < n)",
+        "almost_zero": r"Near-zero $\sigma_{\min}$",
         "kalman_uncontrollable": "Kalman uncontrollable",
     }
 
@@ -87,7 +91,7 @@ def plot_heatmaps(results: Dict[str, np.ndarray],
                  fontsize=16)
 
     for ax, crit in zip(axes, results):
-        data = results[crit][:, :, pB_slice_idx].T   # m (rows) × n (cols)
+        data = results[crit][:, :, pB_slice_idx].T  # m (rows) × n (cols)
         im = ax.imshow(data, origin="lower", aspect="auto",
                        cmap="viridis", vmin=0, vmax=1)
         ax.set_title(crit_titles[crit])
