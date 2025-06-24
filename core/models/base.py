@@ -30,7 +30,7 @@ class DynamicalSystem(ABC):
                  p: Optional[int] = None,  # Output dim.
                  params: Optional[Array] = None,
                  solver: Optional[diffrax.AbstractSolver] = None,
-                 stepsize_controller: Optional[diffrax.AbstractStepSizeController] = None,
+                 stepsize_ctrlr: Optional[diffrax.AbstractStepSizeController] = None,
                  solver_options: Optional[Dict[str, Any]] = None):
         assert isinstance(n, int) and n > 0
         self.n = n
@@ -46,7 +46,7 @@ class DynamicalSystem(ABC):
         self.solver = solver or diffrax.Tsit5()
         self.solver_options = solver_options or {}
         # Ensure a robust adaptive controller is used by default.
-        self.stepsize_controller = stepsize_controller or diffrax.PIDController(rtol=1e-5, atol=1e-5)
+        self.stepsize_controller = stepsize_ctrlr or diffrax.PIDController(rtol=1e-5, atol=1e-5)
 
     @abstractmethod
     def f(self, state: Array, u: Optional[Array], params: Array, t: float) -> Array:
