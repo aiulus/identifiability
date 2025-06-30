@@ -1,6 +1,15 @@
 import jax.numpy as jnp
 from jax import Array
 from typing import List
+import numpy as np
+
+
+def H_wd(w: np.ndarray, T, num_rows: int) -> np.ndarray:
+    T, q = w.shape
+    cols = T - num_rows + 1
+    blocks = [ w[i:i+cols] for i in range(num_rows) ]
+    return np.vstack(blocks)
+
 
 def build_LTI_hankel(A: Array, B: Array, n: int) -> Array:
     """

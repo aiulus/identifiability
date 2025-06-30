@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter
 from tqdm import tqdm
 import itertools
 import json
@@ -76,9 +77,96 @@ def compute_grid(n_list, m_list, pB_list, pA: float, n_samples: int, master_key:
     return results
 
 
-# -------------------------------------------------------------------
-# 1)  Heat-maps with axes swapped  (m on y-axis, p_B on x-axis)
-# -------------------------------------------------------------------
+def compute_grid_4d(n_list, m_list,
+                    pA_list, pB_list,
+                    n_samples: int,
+                    master_key: jax.random.PRNGKey):
+    """
+    Monte-Carlo estimate of failure probability tensor
+
+        P[crit, n_idx, m_idx, pA_idx, pB_idx]
+
+    crit ∈ {"rank_defect", "almost_zero", "kalman_uncontrollable"}
+    """
+    shape_4d = (len(n_list), len(m_list), len(pA_list), len(pB_list))
+    results = {
+        "rank_defect": np.zeros(shape_4d),
+        "almost_zero": np.zeros(shape_4d),
+        "kalman_uncontrollable": np.zeros(shape_4d),
+    }
+
+    key = master_key
+    total = len(n_list) * len(m_list) * len(pA_list)
+    with tqdm(total=total, desc="4-D grid progress") as pbar:
+        for i, n in enumerate(n_list):
+            for j, m in enumerate(m_list):
+                for a, pA in enumerate(pA_list):
+                    pbar.set_description(f"(n={n}, m={m}, pA={pA:0.2f})")
+                    for b, pB in enumerate(pB_list):
+                        key, sub = jax.random.split(key)
+                        trial_keys = jax.random.split(sub, n_samples)
+
+                        batch = jax.vmap(
+                            lambda k_: run_single_instance(int(n), int(m),
+                                                           float(pA), float(pB),
+                                                           k_)
+                        )(trial_keys)
+
+                        for crit in results:
+                            results[crit][i, j, a, b] = jnp.mean(batch[crit])
+                    pbar.update(1)
+    return results
+
+
+def threshold_contour(S,
+                      pA_list,
+                      pB_list,
+                      *,
+                      level: float = 0.5,
+                      sigma: float = 1.0):
+    """
+    Return a list of NumPy arrays, each array = one poly-line of the
+    iso-contour  S(p_A,p_B)=level.
+
+    The function is backend-agnostic: it first tries `.collections`, then
+    falls back to `.allsegs` when the former is absent (as with the
+    QuadContourSet you observed).
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from scipy.ndimage import gaussian_filter
+
+    # 1) smooth Monte-Carlo noise (optional)
+    if sigma > 0:
+        S = gaussian_filter(S, sigma=sigma)
+
+    # 2) build the contour (quietly – no axes needed)
+    CS = plt.contour(np.asarray(pB_list, float),
+                     np.asarray(pA_list, float),
+                     np.asarray(S,   float),
+                     levels=[level],
+                     colors="r")
+
+    # 3) extract path vertices in a version-robust way
+    curves = []
+
+    # Newer Matplotlib: artists live in CS.collections[i].get_paths()
+    if hasattr(CS, "collections") and CS.collections:
+        for coll in CS.collections:
+            for path in coll.get_paths():
+                curves.append(path.vertices)          # (N,2) array
+    # Fallback: use the raw segment list
+    elif hasattr(CS, "allsegs"):
+        for seg in CS.allsegs[0]:                     # first (= only) level
+            curves.append(np.vstack(seg))             # list of arrays → (N,2)
+    else:
+        raise RuntimeError("Could not extract contour vertices from Matplotlib object")
+
+    plt.close()
+    return curves        # each vertex array has columns [p_B, p_A]
+
+
+
 def plot_heatmaps(results: Dict[str, np.ndarray],
                   n_list, m_list, pB_list,
                   pA: float,
@@ -92,8 +180,8 @@ def plot_heatmaps(results: Dict[str, np.ndarray],
     """
     crit_keys = ["rank_defect", "almost_zero", "kalman_uncontrollable"]
     crit_titles = {
-        "rank_defect":           "Rank defect\nrank(H) < n",
-        "almost_zero":           r"Near-zero $\sigma_{\min}$",
+        "rank_defect": "Rank defect\nrank(H) < n",
+        "almost_zero": r"Near-zero $\sigma_{\min}$",
         "kalman_uncontrollable": "Kalman\nuncontrollable",
     }
 
@@ -111,7 +199,7 @@ def plot_heatmaps(results: Dict[str, np.ndarray],
             ax = axes[r, c] if n_rows > 1 else axes[c]
 
             # results[crit][r]  shape = (m, pB)
-            data = results[crit][r]            # no transpose now!
+            data = results[crit][r]  # no transpose now!
 
             im = ax.imshow(
                 data,
@@ -129,8 +217,8 @@ def plot_heatmaps(results: Dict[str, np.ndarray],
             # row label (left column only)
             if c == 0:
                 ax.set_ylabel("input dim $m$\n"
-                               + rf"$n={int(n)}$", rotation=0,
-                               labelpad=45, fontsize=12)
+                              + rf"$n={int(n)}$", rotation=0,
+                              labelpad=45, fontsize=12)
 
             # axes ticks
             ax.set_xticks(pB_list)
@@ -151,9 +239,7 @@ def plot_heatmaps(results: Dict[str, np.ndarray],
     plt.show()
 
 
-# -------------------------------------------------------------------
-# 2)  Same plot, but with bilinear interpolation => visible gradients
-# -------------------------------------------------------------------
+# Same plot with bilinear interpolation
 def plot_heatmaps_gradient(results: Dict[str, np.ndarray],
                            n_list, m_list, pB_list,
                            pA: float,
@@ -179,8 +265,8 @@ def plot_heatmaps_gradient(results: Dict[str, np.ndarray],
     """
     crit_keys = ["rank_defect", "almost_zero", "kalman_uncontrollable"]
     crit_titles = {
-        "rank_defect":           "Rank defect\nrank(H) < n",
-        "almost_zero":           r"Near-zero $\sigma_{\min}$",
+        "rank_defect": "Rank defect\nrank(H) < n",
+        "almost_zero": r"Near-zero $\sigma_{\min}$",
         "kalman_uncontrollable": "Kalman\nuncontrollable",
     }
 
@@ -202,7 +288,7 @@ def plot_heatmaps_gradient(results: Dict[str, np.ndarray],
                 data,
                 origin="lower",
                 aspect="auto",
-                interpolation="bilinear",   # <-- smooth gradient
+                interpolation="bilinear",  # <-- smooth gradient
                 cmap=cmap,
                 vmin=0.0, vmax=1.0,
                 extent=[pB_list[0], pB_list[-1], m_list[0], m_list[-1]],
@@ -212,8 +298,8 @@ def plot_heatmaps_gradient(results: Dict[str, np.ndarray],
                 ax.set_title(crit_titles[crit], fontsize=14, pad=10)
             if c == 0:
                 ax.set_ylabel("input dim $m$\n"
-                               + rf"$n={int(n)}$", rotation=0,
-                               labelpad=45, fontsize=12)
+                              + rf"$n={int(n)}$", rotation=0,
+                              labelpad=45, fontsize=12)
 
             ax.set_xticks(pB_list)
             ax.set_yticks([int(m) for m in m_list])
@@ -231,36 +317,61 @@ def plot_heatmaps_gradient(results: Dict[str, np.ndarray],
     plt.show()
 
 
-
 def main():
-    n_list = [3, 5, 10, 20]  # [3, 5, 10, 20, 30, 40, 50]
-    m_list = [3, 5, 10, 20] # [3, 5, 10, 20, 30, 40, 50]
+    n_list = [3, 5]
+    m_list = [3, 5]
+    # pA_list = jnp.linspace(0.05, 1.0, 11)
+    # pB_list = jnp.linspace(0.05, 1.0, 11)
+    pA_list = jnp.linspace(0.1, 1.0, 11)
+    pB_list = jnp.linspace(0.1, 1.0, 11)
 
-    pB_list = jnp.linspace(0.05, 1.0, 11)
-    pA = 0.5
-    n_samples = 100  # 100
+    n_samples = 10
     master_key = jax.random.PRNGKey(0)
 
-    results = compute_grid(n_list, m_list, pB_list, pA, n_samples, master_key)
+    P = compute_grid_4d(n_list, m_list,
+                        pA_list, pB_list,
+                        n_samples, master_key)
 
-    # --- Save the Results ---
-    output_dir = "outputs"
-    os.makedirs(output_dir, exist_ok=True)
-
-    results_filepath = os.path.join(output_dir, "hankel_grid_results_ntrials_1.npz")
+    # ---------- persist -----------------------------------------------------
+    os.makedirs("outputs", exist_ok=True)
     np.savez(
-        results_filepath,
-        n_list=n_list,
-        m_list=m_list,
-        pB_list=pB_list,
-        pA=pA,
-        **results
+        "outputs/4d_hankel_results_2.npz",
+        n_list=n_list, m_list=m_list,
+        pA_list=pA_list, pB_list=pB_list,
+        P_rank=P["rank_defect"],
+        P_gap=P["almost_zero"],
+        P_ctrl=P["kalman_uncontrollable"],
     )
-    print(f"\nExperiment results saved to: {results_filepath}")
+    print("4-D tensor saved to outputs/4d_hankel_results_2.npz")
 
-    # --- Plotting ---
-    plot_heatmaps(results, n_list, m_list, pB_list, pA)
-    plot_heatmaps_gradient(results, n_list, m_list, pB_list, pA)
+    # ---- analyse one slice  ----------------------------------------------
+    n_idx, m_idx = 0, 1  # e.g. n=5 , m=10
+    S = P["rank_defect"][n_idx, m_idx]  # shape (K,L) over pA × pB
+    curves = threshold_contour(S, pA_list, pB_list)
+
+    # quick visual check ----------------------------------------------------
+    plt.figure(figsize=(6, 4))
+    extent = (
+        float(pB_list[0]), float(pB_list[-1]),  # x-min, x-max   (p_B)
+        float(pA_list[0]), float(pA_list[-1]),  # y-min, y-max   (p_A)
+    )
+
+    plt.imshow(
+        np.asarray(S),  # make sure the data itself is NumPy, too
+        origin="lower",
+        extent=extent,
+        aspect="auto",
+        cmap="viridis",
+        vmin=0, vmax=1,
+    )
+
+    for curve in curves:
+        plt.plot(curve[:, 0], curve[:, 1], 'r', lw=2)
+    plt.xlabel(r"sparsity $p_B$")
+    plt.ylabel(r"sparsity $p_A$")
+    plt.title(r"$\;P_{\text{fail}}$ surface  +  0.5 contour  ($n=5,m=10$)")
+    plt.colorbar(label="failure prob.")
+    plt.show()
 
 
 if __name__ == '__main__':

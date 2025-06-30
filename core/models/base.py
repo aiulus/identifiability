@@ -28,6 +28,7 @@ class DynamicalSystem(ABC):
                  n: int,  # State dim.
                  m: int,  # Input dim.
                  p: Optional[int] = None,  # Output dim.
+                 x0: Optional[Array] = None, # Initial state
                  params: Optional[Array] = None,
                  solver: Optional[diffrax.AbstractSolver] = None,
                  stepsize_ctrlr: Optional[diffrax.AbstractStepSizeController] = None,
@@ -37,6 +38,12 @@ class DynamicalSystem(ABC):
         self.m = m
         self.p = p or n
         assert self.p <= self.n
+
+        if x0 is not None:
+            self.initialState = x0
+        else:
+            self.initialState = jnp.zeros((self.n, 1))
+
         if params is not None:
             self.d = max(params.shape) if params.shape else 0
             self.params = params

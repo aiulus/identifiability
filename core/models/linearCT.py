@@ -11,20 +11,32 @@ class LinearSystem(DynamicalSystem):
         dx/dt = Ax + Bu
         y = Cx
     """
-    def __init__(self, A: Array, B: Array, C: Array, 
+    def __init__(self, A: Array, B: Optional[Array] = None, C: Optional[Array] = None,
+                 x0: Optional[Array] = None,
                  solver: Optional[diffrax.AbstractSolver] = None,
                  solver_options: Optional[Dict[str, Any]] = None):
         
         assert A.ndim == 2 and A.shape[0] == A.shape[1], "A must be a square matrix."
         n = A.shape[0]
-        
-        assert B.ndim == 2 and B.shape[0] == n, f"B must have {n} rows."
-        m = B.shape[1]
-        
-        assert C.ndim == 2 and C.shape[1] == n, f"C must have {n} columns."
-        p = C.shape[0]
 
-        super().__init__(n=n, m=m, p=p, solver=solver, solver_options=solver_options)
+        if B is not None:
+            assert B.ndim == 2 and B.shape[0] == n, f"B must have {n} rows."
+            m = B.shape[1]
+        else:
+            B = jnp.zeros((n, 1))
+            m = 1
+
+        if C is not None:
+            assert C.ndim == 2 and C.shape[1] == n, f"C must have {n} columns."
+            p = C.shape[0]
+        else:
+            C = jnp.eye(n)
+            p = n
+
+        if x0 is None:
+            x0 = jnp.zeros((n, 1))
+
+        super().__init__(n=n, m=m, p=p, x0=x0, solver=solver, solver_options=solver_options)
         
         self.A = A
         self.B = B

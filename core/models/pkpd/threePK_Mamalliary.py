@@ -1,4 +1,4 @@
-from identifiability.core.models.linearCT import LinearSystem
+from core.models.linearCT import LinearSystem
 import jax.numpy as jnp
 from jax import Array
 import diffrax
